@@ -7,6 +7,7 @@ import logging
 
 from certbot import interfaces
 from certbot.plugins import common
+from certbot import util
 
 from acme import challenges
 from uapi import UAPIClient
@@ -94,7 +95,12 @@ class Configurator(common.Plugin):
         return [challenges.HTTP01]
 
     def get_all_names(self):  # pylint: disable=missing-docstring
-        return [vhost['servername'] + vhost['serveralias'].split() for vhost in self.vhosts['data']]
+        all_names = set()
+        for vhost in self.vhosts['data']:
+            all_names.add(vhost['servername'])
+            for alias in vhost['serveralias'].split():
+                all_names.add(alias)
+        return util.get_filtered_names(all_names)
 
     def deploy_cert(self, domain, cert_path, key_path, chain_path, fullchain_path):
         vhost = self._find_vhost_for_domain(domain)
