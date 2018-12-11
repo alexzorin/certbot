@@ -459,6 +459,27 @@ def get_python_os_info():
         os_ver = ''
     return os_type, os_ver
 
+
+HOSTING_PANEL_MARKERS = {
+    ("cPanel/WHM", "https://blog.cpanel.com/autossl/"): "/usr/local/cpanel/",
+    ("Plesk", "https://www.plesk.com/extensions/letsencrypt/"): "/var/log/plesk/",
+    ("DirectAdmin", "https://help.directadmin.com/item.php?id=648"): "/usr/local/directadmin/",
+    ("Bitnami", "https://docs.bitnami.com/aws/how-to/generate-install-lets-encrypt-ssl/"): "/opt/bitnami/",
+}
+
+def get_hosting_panel_info():
+    """
+    Get hosting panel name and version (if any)
+    by looking for platform-specific markers.
+
+    :returns: panel_name
+    :rtype: `tuple` or `None`
+    """
+    for panel in HOSTING_PANEL_MARKERS:
+        if os.path.exists(HOSTING_PANEL_MARKERS[panel]):
+            return panel
+    return None
+
 # Just make sure we don't get pwned... Make sure that it also doesn't
 # start with a period or have two consecutive periods <- this needs to
 # be done in addition to the regex

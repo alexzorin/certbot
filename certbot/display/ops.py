@@ -370,3 +370,28 @@ def validated_directory(validator, *args, **kwargs):
     """
     return _get_validated(zope.component.getUtility(interfaces.IDisplay).directory_select,
                           validator, *args, **kwargs)
+
+
+def warn_for_hosting_panels(plugin_name):
+    """Warn the user if Certbot is running in a hosting panel environment.
+
+    :param plugin_name: The name of the installer/authenticator being invoked.
+        Its text will be displayed if the user is prompted.
+    :raises errors.Error: If the user chooses to abort
+    :rtype: None
+    """
+    panel = util.get_hosting_panel_info()
+    if panel is None:
+        return None
+
+    prompt = ("This system appears to be running {0}. Using Certbot's {1} plugin "
+              "is probably not what you want to do, as it may cause interoperability "
+              "issues. {0} provides separate user interfaces and procedures to create "
+              "SSL certificates. Read more at {2}\n\n"
+              "Are you really sure you want to continue?"
+              .format(panel[0], plugin_name, panel[1]))
+
+    if not z_util(interfaces.IDisplay).yesno(prompt, default=True, force_interactive=False):
+        raise errors.Error("User cancelled the operation.")
+
+    return None

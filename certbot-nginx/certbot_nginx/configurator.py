@@ -18,6 +18,7 @@ from certbot import crypto_util
 from certbot import errors
 from certbot import interfaces
 from certbot import util
+from certbot.display import ops
 
 from certbot.plugins import common
 
@@ -138,7 +139,11 @@ class NginxConfigurator(common.Installer):
 
         :raises .errors.NoInstallationError: If Nginx ctl cannot be found
         :raises .errors.MisconfigurationError: If Nginx is misconfigured
+        :raises .errors.PluginError: If there is any other error
         """
+        # Prompt the user if we're running in a hosting panel
+        ops.warn_for_hosting_panels('nginx')
+
         # Verify Nginx is installed
         if not util.exe_exists(self.conf('ctl')):
             raise errors.NoInstallationError(

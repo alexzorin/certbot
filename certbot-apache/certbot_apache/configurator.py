@@ -19,6 +19,7 @@ from acme.magic_typing import Any, DefaultDict, Dict, List, Set, Union  # pylint
 from certbot import errors
 from certbot import interfaces
 from certbot import util
+from certbot.display import ops
 
 from certbot.achallenges import KeyAuthorizationAnnotatedChallenge  # pylint: disable=unused-import
 from certbot.plugins import common
@@ -220,6 +221,9 @@ class ApacheConfigurator(augeas_configurator.AugeasConfigurator):
         :raises .errors.PluginError: If there is any other error
 
         """
+        # Prompt the user if we're running in a hosting panel environment
+        ops.warn_for_hosting_panels("apache")
+
         # Perform the actual Augeas initialization to be able to react
         try:
             self.init_augeas()
