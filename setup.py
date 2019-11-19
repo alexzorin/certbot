@@ -40,7 +40,7 @@ install_requires = [
     # in which we added 2.6 support (see #2243), so we relax the requirement.
     'ConfigArgParse>=0.9.3',
     'configobj',
-    'cryptography>=1.2.3',  # load_pem_x509_certificate
+    'cryptography==2.9.dev1',  # load_pem_x509_certificate
     'distro>=1.0.1',
     # 1.1.0+ is required to avoid the warnings described at
     # https://github.com/certbot/josepy/issues/13.
@@ -151,6 +151,7 @@ setup(
     include_package_data=True,
 
     install_requires=install_requires,
+    dependency_links=['git+https://github.com/jayvdb/cryptography#egg=cryptography-2.9.dev1'],
     extras_require={
         'dev': dev_extras,
         'dev3': dev3_extras,
