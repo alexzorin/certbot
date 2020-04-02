@@ -8,6 +8,7 @@ import hashlib
 import logging
 import warnings
 
+import re
 # See https://github.com/pyca/cryptography/issues/4275
 from cryptography import x509  # type: ignore
 from cryptography.exceptions import InvalidSignature
@@ -478,6 +479,13 @@ def sha256sum(filename):
         sha256.update(file_d.read().encode('UTF-8'))
     return sha256.hexdigest()
 
+_PEM_RE = re.compile(
+    b"""-----BEGIN CERTIFICATE-----\r?
+.+?\r?
+-----END CERTIFICATE-----\r?\n?""",
+    re.DOTALL,
+)
+
 def cert_and_chain_from_fullchain(fullchain_pem):
     """Split fullchain_pem into cert_pem and chain_pem
 
@@ -487,10 +495,15 @@ def cert_and_chain_from_fullchain(fullchain_pem):
     :rtype: tuple
 
     """
-    cert = crypto.dump_certificate(crypto.FILETYPE_PEM,
-        crypto.load_certificate(crypto.FILETYPE_PEM, fullchain_pem)).decode()
-    chain = fullchain_pem[len(cert):].lstrip()
-    return (cert, chain)
+    certs = [match.group(0) for match in _PEM_RE.finditer(fullchain_pem.encode())]
+    if len(certs) < 2:
+        raise errors.Error("failed to parse fullchain into cert and chain: " +
+                           "less than 2 certificates in chain")
+
+    certs_normalized = [crypto.dump_certificate(crypto.FILETYPE_PEM,
+        crypto.load_certificate(crypto.FILETYPE_PEM, cert)).decode() for cert in certs]
+
+    return (certs_normalized[0], "".join(certs_normalized[1:]))
 
 def get_serial_from_cert(cert_path):
     """Retrieve the serial number of a certificate from certificate path
