@@ -480,9 +480,9 @@ def sha256sum(filename):
     return sha256.hexdigest()
 
 _PEM_RE = re.compile(
-    b"""-----BEGIN CERTIFICATE-----\r?
+    b"""-----BEGIN CERTIFICATE-----[ \t]*\r?
 .+?\r?
------END CERTIFICATE-----\r?\n?""",
+-----END CERTIFICATE-----[ \t]*\r?\n?""",
     re.DOTALL,
 )
 
