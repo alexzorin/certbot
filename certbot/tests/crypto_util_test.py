@@ -382,8 +382,9 @@ class CertAndChainFromFullchainTest(unittest.TestCase):
         fullchain_pem = cert_pem + chain_pem
         spacey_fullchain_pem = cert_pem + u'\n' + chain_pem
         crlf_fullchain_pem = fullchain_pem.replace(u'\n', u'\r\n')
+        intereb_text_fullchain_pem = cert_pem + 'Subject: CN=foo\r\n' + chain_pem
         from certbot.crypto_util import cert_and_chain_from_fullchain
-        for fullchain in (fullchain_pem, spacey_fullchain_pem, crlf_fullchain_pem):
+        for fullchain in (fullchain_pem, spacey_fullchain_pem, crlf_fullchain_pem, intereb_text_fullchain_pem):
             cert_out, chain_out = cert_and_chain_from_fullchain(fullchain)
             self.assertEqual(cert_out, cert_pem)
             self.assertEqual(chain_out, chain_pem)
