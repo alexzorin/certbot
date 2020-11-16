@@ -2,6 +2,7 @@
 import datetime
 import logging
 import platform
+from sys import argv
 
 from cryptography.hazmat.backends import default_backend
 # See https://github.com/pyca/cryptography/issues/4275
@@ -31,6 +32,7 @@ from certbot._internal import storage
 from certbot._internal.plugins import selection as plugin_selection
 from certbot.compat import os
 from certbot.display import ops as display_ops
+from certbot.display import util as display_util
 
 logger = logging.getLogger(__name__)
 
@@ -516,10 +518,11 @@ class Client(object):
 
         return abs_cert_path, abs_chain_path, abs_fullchain_path
 
-    def deploy_certificate(self, domains, privkey_path,
+    def deploy_certificate(self, cert_name, domains, privkey_path,
                            cert_path, chain_path, fullchain_path):
         """Install certificate
 
+        :param str cert_name: name of the certificate lineage (optional)
         :param list domains: list of domains to install the certificate
         :param str privkey_path: path to certificate private key
         :param str cert_path: certificate file path (optional)
@@ -533,7 +536,14 @@ class Client(object):
 
         chain_path = None if chain_path is None else os.path.abspath(chain_path)
 
-        msg = ("Unable to install the certificate")
+        config = zope.component.getUtility(interfaces.IConfig)
+
+        display_util.notify("\nDeploying certificate.")
+        msg = ("Failed to install the certificate (using the {} plugin)."
+               .format(config.installer))
+        if cert_name:
+            msg += (" Try again by running:\n\n  {} install --cert-name {}\n"
+                    .format(argv[0], cert_name))
         with error_handler.ErrorHandler(self._recovery_routine_with_msg, msg):
             for dom in domains:
                 self.installer.deploy_cert(
@@ -637,8 +647,7 @@ class Client(object):
 
         """
         self.installer.recovery_routine()
-        reporter = zope.component.getUtility(interfaces.IReporter)
-        reporter.add_message(success_msg, reporter.HIGH_PRIORITY)
+        display_util.notify(success_msg)
 
     def _rollback_and_restart(self, success_msg):
         """Rollback the most recent checkpoint and restart the webserver
@@ -647,19 +656,17 @@ class Client(object):
 
         """
         logger.critical("Rolling back to previous server configuration...")
-        reporter = zope.component.getUtility(interfaces.IReporter)
         try:
             self.installer.rollback_checkpoints()
             self.installer.restart()
         except:
-            reporter.add_message(
+            logger.error(
                 "An error occurred and we failed to restore your config and "
                 "restart your server. Please post to "
                 "https://community.letsencrypt.org/c/help "
-                "with details about your configuration and this error you received.",
-                reporter.HIGH_PRIORITY)
+                "with details about your configuration and this error you received.")
             raise
-        reporter.add_message(success_msg, reporter.HIGH_PRIORITY)
+        display_util.notify(success_msg)
 
 
 def validate_key_csr(privkey, csr=None):

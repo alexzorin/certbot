@@ -61,27 +61,14 @@ def _suggest_donation_if_appropriate(config):
     if config.staging:
         # --dry-run implies --staging
         return
-    reporter_util = zope.component.getUtility(interfaces.IReporter)
-    msg = ("If you like Certbot, please consider supporting our work by:\n\n"
-           "Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate\n"
-           "Donating to EFF:                    https://eff.org/donate-le\n\n")
-    reporter_util.add_message(msg, reporter_util.LOW_PRIORITY)
-
-def _report_successful_dry_run(config):
-    """Reports on successful dry run
-
-    :param config: Configuration object
-    :type config: interfaces.IConfig
-
-    :returns: `None`
-    :rtype: None
-
-    """
-    reporter_util = zope.component.getUtility(interfaces.IReporter)
-    assert config.verb != "renew"
-    reporter_util.add_message("The dry run was successful.",
-                              reporter_util.HIGH_PRIORITY, on_crash=False)
-
+    disp = zope.component.getUtility(interfaces.IDisplay)
+    util.atexit_register(
+        disp.notification,
+        "If you like Certbot, please consider supporting our work by:\n"
+        " * Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate\n"
+        " * Donating to EFF:                    https://eff.org/donate-le",
+        pause=False
+    )
 
 def _get_and_save_cert(le_client, config, domains=None, certname=None, lineage=None):
     """Authenticate and enroll certificate.
@@ -481,6 +468,9 @@ def _find_domains_or_certname(config, installer, question=None):
 def _report_new_cert(config, cert_path, fullchain_path, key_path=None):
     """Reports the creation of a new certificate to the user.
 
+    :param config: Configuration object
+    :type config: interfaces.IConfig
+
     :param cert_path: path to certificate
     :type cert_path: str
 
@@ -495,29 +485,63 @@ def _report_new_cert(config, cert_path, fullchain_path, key_path=None):
 
     """
     if config.dry_run:
-        _report_successful_dry_run(config)
+        display_util.notify("The dry run was successful.")
         return
 
     assert cert_path and fullchain_path, "No certificates saved to report."
 
     expiry = crypto_util.notAfter(cert_path).date()
-    reporter_util = zope.component.getUtility(interfaces.IReporter)
-    # Print the path to fullchain.pem because that's what modern webservers
-    # (Nginx and Apache2.4) will want.
 
-    verbswitch = ' with the "certonly" option' if config.verb == "run" else ""
-    privkey_statement = 'Your key file has been saved at:{br}{0}{br}'.format(
-            key_path, br=os.linesep) if key_path else ""
-    # XXX Perhaps one day we could detect the presence of known old webservers
-    # and say something more informative here.
-    msg = ('Congratulations! Your certificate and chain have been saved at:{br}'
-           '{0}{br}{1}'
-           'Your cert will expire on {2}. To obtain a new or tweaked version of this '
-           'certificate in the future, simply run {3} again{4}. '
-           'To non-interactively renew *all* of your certificates, run "{3} renew"'
-           .format(fullchain_path, privkey_statement, expiry, cli.cli_command, verbswitch,
-               br=os.linesep))
-    reporter_util.add_message(msg, reporter_util.MEDIUM_PRIORITY)
+    display_util.notify(
+        ("\nSuccessfully received certificate.\n"
+        "Certificate is saved at: {cert_path}\n{key_msg}{symlink_msg}"
+        "This certificate expires on {expiry}.").format(
+            cert_path=fullchain_path,
+            expiry=expiry,
+            key_msg="Key is saved at:         {}\n".format(key_path) if key_path else "",
+            symlink_msg="These files will be automatically updated "
+            "every time the certificate is renewed.\n" if key_path else "",
+        )
+    )
+
+
+def _csr_report_new_cert(config, cert_path, chain_path, fullchain_path):
+    # type: (interfaces.IConfig, str, str, str) -> None
+    """ --csr variant of _report_new_cert.
+
+    Until --csr is overhauled (#8332) this is stopgap function to report the creation
+    of a new certificate using --csr.
+
+    TODO: remove this function as soon as --csr is overhauled.
+
+    :param config: Configuration object
+    :type config: interfaces.IConfig
+
+    :param cert_path: path to cert.pem
+    :type cert_path: str
+
+    :param chain_path: path to chain.pem
+    :type chain_path: str
+
+    :param fullchain_path: path to fullchain.pem
+    :type fullchain_path: str
+    """
+    if config.dry_run:
+        display_util.notify("The dry run was successful.")
+        return
+
+    expiry = crypto_util.notAfter(cert_path).date()
+
+    display_util.notify(
+        ("\nSuccessfully received certificate.\n"
+        "Certificate is saved at:            {cert_path}\n"
+        "Intermediate CA chain is saved at:  {chain_path}\n"
+        "Full certificate chain is saved at: {fullchain_path}\n"
+        "This certificate expires on {expiry}.").format(
+            cert_path=cert_path, chain_path=chain_path,
+            fullchain_path=fullchain_path, expiry=expiry,
+        )
+    )
 
 
 def _determine_account(config):
@@ -800,7 +824,13 @@ def _install_cert(config, le_client, domains, lineage=None):
     path_provider = lineage if lineage else config
     assert path_provider.cert_path is not None
 
-    le_client.deploy_certificate(domains, path_provider.key_path,
+    cert_name = None
+    if isinstance(path_provider, storage.RenewableCert):
+        cert_name = path_provider.lineagename
+    elif path_provider.certname:
+        cert_name = path_provider.certname
+
+    le_client.deploy_certificate(cert_name, domains, path_provider.key_path,
         path_provider.cert_path, path_provider.chain_path, path_provider.fullchain_path)
     le_client.enhance_config(domains, path_provider.chain_path)
 
@@ -1189,20 +1219,29 @@ def _csr_get_and_save_cert(config, le_client):
     :param client: Client object
     :type client: client.Client
 
-    :returns: `cert_path` and `fullchain_path` as absolute paths to the actual files
+    :returns: `cert_path`, `chain_path` and `fullchain_path` as absolute
+              paths to the actual files
     :rtype: `tuple` of `str`
 
     """
     csr, _ = config.actual_csr
+    csr_names = crypto_util.get_names_from_req(csr.data)
+    display_util.notify(
+        "{action} for {domains}".format(
+            action="Simulating a certificate request" if config.dry_run else
+                    "Requesting a certificate",
+            domains=display_util.summarize_domain_list(csr_names)
+        )
+    )
     cert, chain = le_client.obtain_certificate_from_csr(csr)
     if config.dry_run:
         logger.debug(
             "Dry run: skipping saving certificate to %s", config.cert_path)
-        return None, None
-    cert_path, _, fullchain_path = le_client.save_certificate(
+        return None, None, None
+    cert_path, chain_path, fullchain_path = le_client.save_certificate(
         cert, chain, os.path.normpath(config.cert_path),
         os.path.normpath(config.chain_path), os.path.normpath(config.fullchain_path))
-    return cert_path, fullchain_path
+    return cert_path, chain_path, fullchain_path
 
 
 def renew_cert(config, plugins, lineage):
@@ -1233,19 +1272,17 @@ def renew_cert(config, plugins, lineage):
 
     renewed_lineage = _get_and_save_cert(le_client, config, lineage=lineage)
 
-    notify = zope.component.getUtility(interfaces.IDisplay).notification
-    if installer is None:
-        notify("new certificate deployed without reload, fullchain is {0}".format(
-               lineage.fullchain), pause=False)
-    else:
+    if installer:
         # In case of a renewal, reload server to pick up new certificate.
         # In principle we could have a configuration option to inhibit this
         # from happening.
         # Run deployer
         updater.run_renewal_deployer(config, renewed_lineage, installer)
         installer.restart()
-        notify("new certificate deployed with reload of {0} server; fullchain is {1}".format(
-               config.installer, lineage.fullchain), pause=False)
+
+    display_util.notify("Successfully {verb} certificate.".format(
+        verb="simulated renewal of" if config.dry_run else "renewed"
+    ))
 
 
 def certonly(config, plugins):
@@ -1276,8 +1313,8 @@ def certonly(config, plugins):
     le_client = _init_le_client(config, auth, installer)
 
     if config.csr:
-        cert_path, fullchain_path = _csr_get_and_save_cert(config, le_client)
-        _report_new_cert(config, cert_path, fullchain_path)
+        cert_path, chain_path, fullchain_path = _csr_get_and_save_cert(config, le_client)
+        _csr_report_new_cert(config, cert_path, chain_path, fullchain_path)
         _suggest_donation_if_appropriate(config)
         eff.handle_subscription(config, le_client.account)
         return

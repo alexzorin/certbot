@@ -16,7 +16,7 @@ import textwrap
 import zope.interface
 import zope.component
 
-from acme.magic_typing import List
+from acme.magic_typing import List, Optional
 from certbot import errors
 from certbot import interfaces
 from certbot._internal import constants
@@ -152,6 +152,7 @@ class FileDisplay(object):
         if pause:
             if self._can_interact(force_interactive):
                 input_with_timeout("Press Enter to Continue")
+                self._print_newline()
             else:
                 logger.debug("Not pausing for user confirmation")
 
@@ -185,6 +186,8 @@ class FileDisplay(object):
         self._print_menu(message, choices)
 
         code, selection = self._get_valid_int_ans(len(choices))
+
+        self._print_newline()
 
         return code, selection - 1
 
@@ -243,6 +246,8 @@ class FileDisplay(object):
             os.linesep, frame=SIDE_FRAME + os.linesep, msg=message))
         self.outfile.flush()
 
+        result = None
+
         while True:
             ans = input_with_timeout("{yes}/{no}: ".format(
                 yes=_parens_around_char(yes_label),
@@ -252,10 +257,16 @@ class FileDisplay(object):
             # elif doesn't matter in this situation
             if (ans.startswith(yes_label[0].lower()) or
                     ans.startswith(yes_label[0].upper())):
-                return True
+                result = True
+                break
             if (ans.startswith(no_label[0].lower()) or
                     ans.startswith(no_label[0].upper())):
-                return False
+                result = False
+                break
+
+        self._print_newline()
+
+        return result
 
     def checklist(self, message, tags, default=None,
                   cli_flag=None, force_interactive=False, **unused_kwargs):
@@ -277,6 +288,9 @@ class FileDisplay(object):
         if self._return_default(message, default, cli_flag, force_interactive):
             return OK, default
 
+        code = None # type: Optional[str]
+        selected_tags = None # type: Optional[list]
+
         while True:
             self._print_menu(message, tags)
 
@@ -291,12 +305,17 @@ class FileDisplay(object):
                 indices = separate_list_input(ans)
                 selected_tags = self._scrub_checklist_input(indices, tags)
                 if selected_tags:
-                    return code, selected_tags
+                    break
                 self.outfile.write(
                     "** Error - Invalid selection **%s" % os.linesep)
                 self.outfile.flush()
             else:
-                return code, []
+                selected_tags = []
+                break
+
+        self._print_newline()
+
+        return code, selected_tags
 
     def _return_default(self, prompt, default, cli_flag, force_interactive):
         """Should we return the default instead of prompting the user?
@@ -457,6 +476,11 @@ class FileDisplay(object):
                 self.outfile.flush()
 
         return OK, selection
+
+    def _print_newline(self):
+        """Flushes a newline to the display, for spacing reasons"""
+        self.outfile.write(os.linesep)
+        self.outfile.flush()
 
 
 def assert_valid_call(prompt, default, cli_flag, force_interactive):
